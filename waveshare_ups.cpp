@@ -86,13 +86,30 @@ static bool i2c_write16(int fd, uint8_t reg, uint16_t val) {
     uint8_t buf[3] = { reg,
                        static_cast<uint8_t>(val >> 8),
                        static_cast<uint8_t>(val & 0xFF) };
-    return ::write(fd, buf, 3) == 3;
+    ssize_t n = ::write(fd, buf, sizeof(buf));
+    if (n != static_cast<ssize_t>(sizeof(buf))) {
+        std::cerr << "[I2C] write16(reg=0x" << std::hex << static_cast<int>(reg)
+                  << std::dec << ") returned " << n << ": " << strerror(errno) << "\n";
+        return false;
+    }
+    return true;
 }
 
 static bool i2c_read16(int fd, uint8_t reg, uint16_t &out) {
-    if (::write(fd, &reg, 1) != 1) return false;
+    ssize_t n = ::write(fd, &reg, 1);
+    if (n != 1) {
+        std::cerr << "[I2C] read16(reg=0x" << std::hex << static_cast<int>(reg)
+                  << std::dec << ") select-write returned " << n << ": "
+                  << strerror(errno) << "\n";
+        return false;
+    }
     uint8_t buf[2];
-    if (::read(fd, buf, 2) != 2) return false;
+    n = ::read(fd, buf, sizeof(buf));
+    if (n != static_cast<ssize_t>(sizeof(buf))) {
+        std::cerr << "[I2C] read16(reg=0x" << std::hex << static_cast<int>(reg)
+                  << std::dec << ") returned " << n << ": " << strerror(errno) << "\n";
+        return false;
+    }
     out = static_cast<uint16_t>((buf[0] << 8) | buf[1]);
     return true;
 }
