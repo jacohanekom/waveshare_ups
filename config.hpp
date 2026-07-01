@@ -65,7 +65,9 @@ public:
     int get_int(const std::string &k, int def = 0) const {
         auto it = store_.find(k);
         if (it == store_.end() || it->second.empty()) return def;
-        try { return std::stoi(it->second); } catch (...) { return def; }
+        // base 0 autodetects "0x.."/"0.." prefixes so hex values like the
+        // I2C address parse correctly instead of silently truncating to 0.
+        try { return std::stoi(it->second, nullptr, 0); } catch (...) { return def; }
     }
 
     double get_double(const std::string &k, double def = 0.0) const {
