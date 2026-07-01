@@ -25,7 +25,7 @@ esac
 echo ""
 echo "waveshare-ups installed."
 echo "  Edit config : /etc/waveshare-ups/config.ini"
-echo "                Verify device.addr matches your board (default 0x43)"
+echo "                Verify device.addr matches your board (default 0x42)"
 echo "                Run 'i2cdetect -y 1' to find the address"
 echo "  Enable      : systemctl enable --now waveshare-ups"
 echo "  Stream data : nc 127.0.0.1 8564"

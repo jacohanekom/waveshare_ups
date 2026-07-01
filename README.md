@@ -62,7 +62,7 @@ cp config.ini my-config.ini
 ```ini
 [device]
 bus         = /dev/i2c-1       ; I2C bus (Raspberry Pi default)
-addr        = 0x43             ; INA219 I2C address (Waveshare UPS HAT B default)
+addr        = 0x42             ; INA219 I2C address (Waveshare UPS HAT B default)
 poll_ms     = 1000             ; polling interval in milliseconds
 retry_secs  = 5                ; seconds to wait before reconnect after failure
 
@@ -116,4 +116,4 @@ systemctl status waveshare-ups
 journalctl -fu waveshare-ups
 ```
 
-Edit `/etc/waveshare-ups/config.ini` and `systemctl restart waveshare-ups` to apply changes. Verify `device.addr` matches your board (default `0x43`) — run `i2cdetect -y 1` to find it.
+Edit `/etc/waveshare-ups/config.ini` and `systemctl restart waveshare-ups` to apply changes. Verify `device.addr` matches your board (default `0x42`) — run `i2cdetect -y 1` to find it.

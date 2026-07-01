@@ -74,9 +74,10 @@ static constexpr uint8_t INA219_REG_CURRENT   = 0x04;
 static constexpr uint8_t INA219_REG_CALIB     = 0x05;
 
 // Config register value:
-//   BRNG=1 (32 V range), PGA=11 (÷8, ±320 mV), BADC=0011 (12-bit),
-//   SADC=0011 (12-bit), MODE=111 (shunt+bus continuous)
-static constexpr uint16_t INA219_CONFIG = 0x399F;
+//   BRNG=1 (32 V range), PGA=11 (÷8, ±320 mV), BADC=1101 (12-bit, 32 samples),
+//   SADC=1101 (12-bit, 32 samples), MODE=111 (shunt+bus continuous)
+// Matches Waveshare's reference INA219 driver (set_calibration_32V_2A).
+static constexpr uint16_t INA219_CONFIG = 0x3EEF;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // I2C helpers
@@ -405,7 +406,7 @@ int main(int argc, char **argv) {
     Config cfg(cfg_path);
 
     const std::string i2c_bus   = cfg.get_str("device.bus",      "/dev/i2c-1");
-    const int         i2c_addr  = cfg.get_int("device.addr",     0x43);
+    const int         i2c_addr  = cfg.get_int("device.addr",     0x42);
     const int         poll_ms   = cfg.get_int("device.poll_ms",  1000);
     const int         retry_s   = cfg.get_int("device.retry_secs", 5);
     const int         ctrl_port = cfg.get_int("output.ctrl_port", 8565);
