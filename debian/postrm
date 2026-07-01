@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+case "$1" in
+    remove)
+        rm -f /lib/systemd/system/waveshare-ups.service
+        systemctl daemon-reload || true
+        ;;
+    purge)
+        rm -f /lib/systemd/system/waveshare-ups.service
+        rm -f /usr/lib/systemd/system/waveshare-ups.service
+        systemctl daemon-reload || true
+        if id -u waveshare-ups > /dev/null 2>&1; then
+            deluser --system waveshare-ups || true
+        fi
+        rm -rf /etc/waveshare-ups || true
+        ;;
+esac
+#DEBHELPER#
+exit 0

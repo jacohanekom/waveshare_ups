@@ -1,0 +1,25 @@
+Source: waveshare-ups
+Section: misc
+Priority: optional
+Maintainer: Jaco Hanekom <jhanekom@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+
+Package: waveshare-ups
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Waveshare UPS HAT (B) I2C telemetry publisher
+ Reads the Waveshare UPS HAT (B) battery management board via I2C
+ (INA219 power monitor chip) and broadcasts one JSON telemetry line
+ per poll cycle over TCP.
+ .
+ Reports bus voltage, current, power, shunt voltage, estimated state
+ of charge, charging status, and online state. Configurable poll
+ interval, I2C address, shunt resistor value, and battery voltage
+ thresholds.
+ .
+ Data stream  : TCP :<8564>  (newline-delimited JSON)
+ Status query : TCP :<8565>  (echo status | nc localhost 8565)
+ Config       : /etc/waveshare-ups/config.ini

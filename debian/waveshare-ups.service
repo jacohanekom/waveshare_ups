@@ -1,0 +1,31 @@
+[Unit]
+Description=Waveshare UPS HAT (B) I2C telemetry publisher
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=waveshare-ups
+Group=waveshare-ups
+
+ExecStart=/usr/bin/waveshare_ups --config /etc/waveshare-ups/config.ini
+
+Restart=on-failure
+RestartSec=5
+
+# I2C device access
+SupplementaryGroups=i2c
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=waveshare-ups
+
+[Install]
+WantedBy=multi-user.target

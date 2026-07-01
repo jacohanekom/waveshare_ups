@@ -1,0 +1,9 @@
+waveshare-ups (1.0.0+202607010000-1) stable; urgency=low
+
+  * Initial release.
+  * INA219 I2C driver with configurable shunt and calibration.
+  * JSON broadcast over TCP with voltage, current, power, SOC, charging state.
+  * Auto-reconnect on I2C failure.
+  * Configurable battery voltage thresholds for SOC estimation.
+
+ -- Jaco Hanekom <jhanekom@gmail.com>  Tue, 01 Jul 2026 00:00:00 +0000
