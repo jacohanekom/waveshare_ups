@@ -1,0 +1,177 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-deb:
+    # Genuinely arm64 hardware (no QEMU) — matches the deployment target
+    # and the other aipicam packages published into the shared repo.
+    runs-on: ubuntu-24.04-arm
+    env:
+      R2_BUCKET: aipicam-test-packages
+      AWS_DEFAULT_REGION: auto
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential debhelper devscripts cmake reprepro gnupg \
+            curl ca-certificates unzip
+
+      - name: Install AWS CLI
+        run: |
+          if command -v aws >/dev/null 2>&1; then
+            echo "AWS CLI already present: $(aws --version)"
+          else
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o awscliv2.zip
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+          fi
+
+      - name: Determine target apt distribution
+        id: dist
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "codename=main" >> "$GITHUB_OUTPUT"
+          else
+            echo "codename=nightly" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp build-time version for nightly builds
+        if: ${{ steps.dist.outputs.codename == 'nightly' }}
+        env:
+          DEBEMAIL: jhanekom@gmail.com
+          DEBFULLNAME: Jaco Hanekom
+        run: |
+          BASEVER="$(dpkg-parsechangelog -S Version | sed -E 's/\+.*//')"
+          TS="$(date -u +%Y%m%d%H%M%S)"
+          dch --newversion "${BASEVER}+${TS}" --distribution stable --force-distribution \
+            "Automated CI build (UTC ${TS})."
+
+      - name: Build package
+        run: dpkg-buildpackage -us -uc -b
+
+      - name: Collect build artifacts
+        run: |
+          mkdir dist
+          cp ../*.deb ../*.changes ../*.buildinfo dist/
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: waveshare-ups-deb
+          path: dist/*
+
+      - name: Import GPG signing key
+        run: printf '%s' "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+
+      - name: Render reprepro config
+        run: |
+          mkdir -p apt-repo/conf
+          sed "s/__GPG_KEY_ID__/${{ secrets.GPG_KEY_ID }}/" \
+            .github/reprepro/distributions.tmpl > apt-repo/conf/distributions
+
+      # Guards the fetch/modify/publish critical section below: without
+      # this, two repos' workflows publishing around the same time can
+      # each download the repo state before the other's upload lands,
+      # then each re-upload with --delete based on its own stale local
+      # mirror — silently dropping the other's just-published package
+      # (confirmed happening between mp3-player and victron_ve_direct).
+      - name: Acquire R2 publish lock
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          LOCK_ID="${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          LOCK_FILE=$(mktemp)
+          printf '%s' "$LOCK_ID" > "$LOCK_FILE"
+          ELAPSED=0
+          MAX_WAIT=600
+          while ! aws s3api put-object --bucket "${R2_BUCKET}" --key _lock \
+              --body "$LOCK_FILE" --if-none-match '*' \
+              --endpoint-url "$ENDPOINT" >/dev/null 2>&1; do
+            if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
+              echo "Breaking stale publish lock after ${MAX_WAIT}s"
+              aws s3api delete-object --bucket "${R2_BUCKET}" --key _lock --endpoint-url "$ENDPOINT" || true
+              ELAPSED=0
+              continue
+            fi
+            echo "Publish lock held by another run, waiting..."
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          rm -f "$LOCK_FILE"
+          echo "Lock acquired: $LOCK_ID"
+
+      - name: Fetch existing repo state from R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3 sync "s3://${R2_BUCKET}" apt-repo \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --exclude "conf/*"
+
+      - name: Add package to repo
+        run: reprepro -b apt-repo includedeb ${{ steps.dist.outputs.codename }} dist/*.deb
+
+      - name: Export public key
+        run: gpg --export --armor "${{ secrets.GPG_KEY_ID }}" > apt-repo/pubkey.asc
+
+      # dists/* (Packages/Release/InRelease) and pubkey.asc change on
+      # every publish, so apt clients must always revalidate rather than
+      # serve a stale Cloudflare-cached copy -- R2 doesn't auto-purge the
+      # CDN cache on overwrite. pool/*.deb filenames are unique per
+      # version, so those are left cacheable normally.
+      - name: Publish repo to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          ENDPOINT="https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          aws s3 sync apt-repo "s3://${R2_BUCKET}" \
+            --endpoint-url "$ENDPOINT" \
+            --exclude "conf/*" --exclude "dists/*" --exclude "pubkey.asc" --delete
+          aws s3 sync apt-repo/dists "s3://${R2_BUCKET}/dists" \
+            --endpoint-url "$ENDPOINT" \
+            --cache-control "no-cache, must-revalidate" --delete
+          aws s3 cp apt-repo/pubkey.asc "s3://${R2_BUCKET}/pubkey.asc" \
+            --endpoint-url "$ENDPOINT" \
+            --cache-control "no-cache, must-revalidate"
+
+      # Cloudflare doesn't reliably honor the origin's Cache-Control on
+      # this zone (confirmed: it substitutes its own ~4h edge TTL even
+      # on a fresh MISS), so the no-cache headers above aren't enough on
+      # their own -- an explicit purge after every publish is what
+      # actually keeps apt clients from seeing a stale Packages/Release.
+      - name: Purge Cloudflare cache for repo metadata
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${{ secrets.CF_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{"files": [
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/InRelease",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/Release",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/Release.gpg",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/main/binary-arm64/Packages",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/main/binary-arm64/Packages.gz",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/main/binary-armhf/Packages",
+              "https://apt.aipicam.com/dists/${{ steps.dist.outputs.codename }}/main/binary-armhf/Packages.gz",
+              "https://apt.aipicam.com/pubkey.asc"
+            ]}' \
+            "https://api.cloudflare.com/client/v4/zones/${{ secrets.CF_ZONE_ID }}/purge_cache"
+
+      - name: Release R2 publish lock
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3api delete-object --bucket "${R2_BUCKET}" --key _lock \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com" || true

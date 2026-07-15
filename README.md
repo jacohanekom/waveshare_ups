@@ -81,9 +81,33 @@ ctrl_port   = 8565             ; status : echo status | nc 127.0.0.1 8565
 data_port   = 8564             ; stream : nc 127.0.0.1 8564
 ```
 
-## Debian package
+## Install
 
-Build the `.deb` on the target machine (e.g. Raspberry Pi):
+### From the APT repository
+
+CI publishes to a signed APT repository (shared with other aipicam Raspberry Pi packages) hosted on Cloudflare R2, with two channels:
+
+- **`main`** — pushing a `v*` tag publishes the clean release version here.
+- **`nightly`** — every push (to any branch, and PRs) publishes a dev build here, versioned with a `+<UTC timestamp>` suffix.
+
+```bash
+curl -fsSL https://apt.aipicam.com/pubkey.asc | sudo gpg --dearmor -o /usr/share/keyrings/aipicam.gpg
+
+# stable releases
+echo "deb [signed-by=/usr/share/keyrings/aipicam.gpg] https://apt.aipicam.com main main" | sudo tee /etc/apt/sources.list.d/aipicam.list
+
+# or nightly builds instead
+echo "deb [signed-by=/usr/share/keyrings/aipicam.gpg] https://apt.aipicam.com nightly main" | sudo tee /etc/apt/sources.list.d/aipicam.list
+
+sudo apt-get update
+sudo apt-get install waveshare-ups
+```
+
+Builds run on GitHub's native `ubuntu-24.04-arm` hosted runner (no QEMU), producing **arm64** packages — a 64-bit Raspberry Pi OS is required for the CI packages. Uses the same `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `GPG_PRIVATE_KEY`, and `GPG_KEY_ID` repo secrets as [pi-fan-control](https://github.com/jacohanekom/pi-fan-control), since it publishes into the same shared repo.
+
+### Build the .deb yourself
+
+On the target machine (e.g. a 32-bit Pi, which produces `armhf`):
 
 ```bash
 cd waveshare-ups
